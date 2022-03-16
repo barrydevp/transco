@@ -137,9 +137,7 @@ func (c *Client) StartSession() (*Session, error) {
 	return session, nil
 }
 
-func (c *Client) JoinSession(sessionId string, body *ParticipantJoinBody) (*Participant, error) {
-	session := c.newSession()
-	session.Id = sessionId
+func (c *Client) joinSession(sessionId string, body *ParticipantJoinBody, session *Session) (*Participant, error) {
 	participant := &Participant{session: session}
 	respBody := &ParticipantResponse{Data: participant}
 
@@ -153,6 +151,13 @@ func (c *Client) JoinSession(sessionId string, body *ParticipantJoinBody) (*Part
 	}
 
 	return participant, nil
+}
+
+func (c *Client) JoinSession(sessionId string, body *ParticipantJoinBody) (*Participant, error) {
+	session := c.newSession()
+	session.Id = sessionId
+
+	return c.joinSession(sessionId, body, session)
 }
 
 func (c *Client) partialCommit(sessionId string, body *ParticipantCommit, participant *Participant) (*Participant, error) {
@@ -222,13 +227,11 @@ func (c *Client) AbortSession(sessionId string) (*Session, error) {
 
 func (s *Session) JoinSession(body *ParticipantJoinBody) (*Participant, error) {
 	body.ClientId = "checkoutservice"
-	participant, err := s.client.JoinSession(s.Id, body)
+	participant, err := s.client.joinSession(s.Id, body, s)
 
 	if err != nil {
 		return nil, err
 	}
-
-	// participant.session = s
 
 	return participant, nil
 }
