@@ -226,7 +226,6 @@ func (c *Client) AbortSession(sessionId string) (*Session, error) {
 }
 
 func (s *Session) JoinSession(body *ParticipantJoinBody) (*Participant, error) {
-	body.ClientId = "checkoutservice"
 	participant, err := s.client.joinSession(s.Id, body, s)
 
 	if err != nil {
