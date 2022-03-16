@@ -265,7 +265,7 @@ func (s *Session) AbortSession() error {
 	_, err := s.client.abortSession(s.Id, s)
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return nil
