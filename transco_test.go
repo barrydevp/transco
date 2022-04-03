@@ -1,9 +1,13 @@
-package transco
+package transco_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/barrydevp/transco"
+)
 
 const (
-    TRANSCOORDITOR_URL = "http://localhost:8000"
+	TRANSCOORDITOR_URL = "http://localhost:8000"
 )
 
 func printErr(t *testing.T, err error) {
@@ -16,8 +20,12 @@ func assertError(t *testing.T, err error) {
 	}
 }
 
-func session() (*Session, error) {
-	return New(TRANSCOORDITOR_URL).StartSession()
+func session() (*transco.Session, error) {
+	c, err := transco.New(TRANSCOORDITOR_URL)
+	if err != nil {
+		return nil, err
+	}
+	return c.StartSession()
 }
 
 func TestSimpleCommitSession(t *testing.T) {
@@ -29,29 +37,29 @@ func TestSimpleCommitSession(t *testing.T) {
 	}
 
 	testCases := []struct {
-		PartJoinBody      *ParticipantJoinBody
-		ParticipantCommit *ParticipantCommit
+		PartJoinBody      *transco.ParticipantJoinBody
+		ParticipantCommit *transco.ParticipantCommit
 	}{
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-1",
 				RequestId: "1",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-2",
 				RequestId: "2",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-3",
 				RequestId: "3",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 	}
 
@@ -87,29 +95,29 @@ func TestSimpleAbortSession(t *testing.T) {
 	}
 
 	testCases := []struct {
-		PartJoinBody      *ParticipantJoinBody
-		ParticipantCommit *ParticipantCommit
+		PartJoinBody      *transco.ParticipantJoinBody
+		ParticipantCommit *transco.ParticipantCommit
 	}{
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-1",
 				RequestId: "1",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-2",
 				RequestId: "2",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 		{
-			PartJoinBody: &ParticipantJoinBody{
+			PartJoinBody: &transco.ParticipantJoinBody{
 				ClientId:  "c-3",
 				RequestId: "3",
 			},
-			ParticipantCommit: &ParticipantCommit{},
+			ParticipantCommit: &transco.ParticipantCommit{},
 		},
 	}
 

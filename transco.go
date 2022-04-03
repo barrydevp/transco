@@ -1,119 +1,39 @@
 package transco
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/go-resty/resty/v2"
 )
 
 const (
-	BASE_TRANSCOORDITOR_URL = "http://transcoorditor:8080"
-	V1_PREFIX_PATH          = "api/v1"
+	DefaultUri      = "http://transcoorditor:8080"
+	V1PrefixApiPath = "api/v1"
 )
 
 type Client struct {
-	rest *resty.Client
+	conn *Connection
 }
 
-type ParticipantAction struct {
-	Data         interface{}               `json:"data"`
-	Uri          *string                   `json:"uri"`
-	Status       string                    `json:"status"`
-	Results      []*map[string]interface{} `json:"results"`
-	InvokedCount int                       `json:"invokedCount"`
-}
-
-type Participant struct {
-	session *Session `json:"-"`
-
-	Id        int64  `json:"id"`
-	SessionId string `json:"sessionId"`
-
-	ClientId         string             `json:"clientId"`
-	RequestId        string             `json:"requestId"`
-	State            string             `json:"state"`
-	CompensateAction *ParticipantAction `json:"compensateAction,omitempty"`
-	CompleteAction   *ParticipantAction `json:"completeAction,omitempty"`
-	UpdatedAt        *time.Time         `json:"updatedAt,omitempty"`
-	CreatedAt        *time.Time         `json:"createdAt"`
-}
-
-type Session struct {
-	client *Client `json:"-"`
-
-	Id string `json:"id"`
-
-	State     string     `json:"state"`
-	Timeout   int        `json:"timeout"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
-	StartedAt *time.Time `json:"startedAt,omitempty"`
-	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	Errors    []string   `json:"errors,omitempty"`
-}
-
-type ParticipantJoinBody struct {
-	ClientId  string `json:"clientId"`
-	RequestId string `json:"requestId"`
-}
-
-type ParticipantCommit struct {
-	Id         int64              `json:"participantId"`
-	Compensate *ParticipantAction `json:"compensate"`
-	Complete   *ParticipantAction `json:"complete"`
-}
-
-func New(url string) *Client {
-	if url == "" {
-		url = BASE_TRANSCOORDITOR_URL
+func New(uri string) (*Client, error) {
+	if uri == "" {
+		uri = DefaultUri
 	}
 
-	rest := resty.New()
-	rest.SetBaseURL(url)
+	conn, err := NewConn(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = conn.Connect(); err != nil {
+		return nil, err
+	}
 
 	return &Client{
-		rest: rest,
-	}
-}
-
-type ErrorResponse struct {
-	Err string `json:"err"`
-	Msg string `json:"msg"`
-}
-
-type SessionResponse struct {
-	Data *Session `json:"data"`
-}
-
-type ParticipantResponse struct {
-	Data *Participant `json:"data"`
+		conn: conn,
+	}, nil
 }
 
 func (c *Client) v1SessionPath() string {
-	return V1_PREFIX_PATH + "/sessions"
-}
-
-func (c *Client) newRequest() *resty.Request {
-	return c.rest.R().
-		SetHeader("Content-Type", "application/json").
-		SetError(&ErrorResponse{}).
-		SetBody(`{}`) // default value for POST
-}
-
-func (c *Client) checkResponse(resp *resty.Response, err error) error {
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode() != 200 {
-		errBody, ok := resp.Error().(*ErrorResponse)
-		if ok {
-			return fmt.Errorf("non 200 status: %v, msg: %v, err: %v", resp.StatusCode(), errBody.Msg, errBody.Err)
-		}
-		return fmt.Errorf("non 200 status: %v", resp.StatusCode())
-	}
-
-	return nil
+	return V1PrefixApiPath + "/sessions"
 }
 
 func (c *Client) newSession() *Session {
@@ -124,13 +44,13 @@ func (c *Client) newSession() *Session {
 
 func (c *Client) StartSession() (*Session, error) {
 	session := c.newSession()
-	respBody := &SessionResponse{Data: session}
 
-	resp, err := c.newRequest().
-		SetResult(respBody).
-		Post(c.v1SessionPath())
-
-	if err := c.checkResponse(resp, err); err != nil {
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(session).
+			Post(c.v1SessionPath())
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -139,14 +59,14 @@ func (c *Client) StartSession() (*Session, error) {
 
 func (c *Client) joinSession(sessionId string, body *ParticipantJoinBody, session *Session) (*Participant, error) {
 	participant := &Participant{session: session}
-	respBody := &ParticipantResponse{Data: participant}
 
-	resp, err := c.newRequest().
-		SetBody(body).
-		SetResult(respBody).
-		Post(c.v1SessionPath() + "/" + sessionId + "/join")
-
-	if err := c.checkResponse(resp, err); err != nil {
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(participant).
+			SetBody(body).
+			Post(c.v1SessionPath() + "/" + sessionId + "/join")
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -161,14 +81,13 @@ func (c *Client) JoinSession(sessionId string, body *ParticipantJoinBody) (*Part
 }
 
 func (c *Client) partialCommit(sessionId string, body *ParticipantCommit, participant *Participant) (*Participant, error) {
-	respBody := &ParticipantResponse{Data: participant}
-
-	resp, err := c.newRequest().
-		SetBody(body).
-		SetResult(respBody).
-		Post(c.v1SessionPath() + "/" + sessionId + "/partial-commit")
-
-	if err := c.checkResponse(resp, err); err != nil {
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(participant).
+			SetBody(body).
+			Post(c.v1SessionPath() + "/" + sessionId + "/partial-commit")
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -184,13 +103,12 @@ func (c *Client) PartialCommit(sessionId string, body *ParticipantCommit) (*Part
 }
 
 func (c *Client) commitSession(sessionId string, session *Session) (*Session, error) {
-	respBody := &SessionResponse{Data: session}
-
-	resp, err := c.rest.R().
-		SetResult(respBody).
-		Post(c.v1SessionPath() + "/" + sessionId + "/commit")
-
-	if err := c.checkResponse(resp, err); err != nil {
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(session).
+			Post(c.v1SessionPath() + "/" + sessionId + "/commit")
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -205,13 +123,12 @@ func (c *Client) CommitSession(sessionId string) (*Session, error) {
 }
 
 func (c *Client) abortSession(sessionId string, session *Session) (*Session, error) {
-	respBody := &SessionResponse{Data: session}
-
-	resp, err := c.rest.R().
-		SetResult(respBody).
-		Post(c.v1SessionPath() + "/" + sessionId + "/abort")
-
-	if err := c.checkResponse(resp, err); err != nil {
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(session).
+			Post(c.v1SessionPath() + "/" + sessionId + "/abort")
+	})
+	if err != nil {
 		return nil, err
 	}
 
