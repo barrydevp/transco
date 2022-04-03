@@ -28,7 +28,7 @@ const (
 type RequestFunc func(req *RestRequest) (*resty.Response, error)
 
 type node struct {
-	*nodeConfiguration
+	conf        *nodeConfiguration
 	IP          *net.IP
 	BaseURL     string
 	rest        *Rest
@@ -84,7 +84,7 @@ func newConnStr(uri string) (*connString, error) {
 	cs.hosts = make([]string, len(rawHosts))
 	for i, host := range rawHosts {
 		vHost := host
-		if strings.Index(host, ":") == -1 {
+		if !strings.Contains(host, ":") {
 			vHost += ":" + DefaultPort
 		}
 		cs.hosts[i] = vHost
@@ -153,7 +153,7 @@ func (c *Connection) loadCluster() error {
 
 	var leader *node
 	for _, n := range c.nodes {
-		if n.Host == leaderConf.Host && n.ID == leaderConf.ID {
+		if n.conf.Host == leaderConf.Host && n.conf.ID == leaderConf.ID {
 			leader = n
 		}
 	}
@@ -173,7 +173,7 @@ func (n *node) init() error {
 	if err != nil {
 		return err
 	}
-	n.nodeConfiguration = nconf
+	n.conf = nconf
 
 	return nil
 }

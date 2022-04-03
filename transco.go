@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	DefaultUri      = "http://transcoorditor:8080"
+	DefaultUri      = "http://transcoorditor:8000"
 	V1PrefixApiPath = "api/v1"
 )
 
