@@ -137,16 +137,27 @@ func (c *Connection) loadCluster() error {
 		return fmt.Errorf("empty nodes")
 	}
 
+	// reset leader
+	// @TODO: separate into individual method, using mutex lock to manage concurrent access
+	c.rsconf = nil
+	c.leader = nil
+	var err error
+
 	// fetch rsconf
-	firstNode := c.nodes[0]
-	rsconf, err := firstNode.rsconf()
+	for _, node := range c.nodes {
+		// firstNode := c.nodes[0]
+		c.rsconf, err = node.rsconf()
+		if err != nil {
+			continue
+		}
+	}
+
 	if err != nil {
 		return err
 	}
-	c.rsconf = rsconf
 
 	// populate leader
-	leaderConf := rsconf.Leader
+	leaderConf := c.rsconf.Leader
 	if leaderConf == nil {
 		return fmt.Errorf("no leader")
 	}
