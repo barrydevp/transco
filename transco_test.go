@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	TRANSCOORDITOR_URL = "http://localhost:8000"
+	TRANSCOORDITOR_URI = "http://localhost:8000"
 )
 
 func printErr(t *testing.T, err error) {
@@ -21,7 +21,7 @@ func assertError(t *testing.T, err error) {
 }
 
 func session() (*transco.Session, error) {
-	c, err := transco.New(TRANSCOORDITOR_URL)
+	c, err := transco.New(TRANSCOORDITOR_URI)
 	if err != nil {
 		return nil, err
 	}

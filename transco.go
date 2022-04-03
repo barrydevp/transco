@@ -57,6 +57,20 @@ func (c *Client) StartSession() (*Session, error) {
 	return session, nil
 }
 
+func (c *Client) SessionFromId(sessionId string) (*Session, error) {
+	session := c.newSession()
+	_, err := c.conn.request(func(req *RestRequest) (*resty.Response, error) {
+		return req.
+			SetResult(session).
+			Get(c.v1SessionPath() + "/" + sessionId)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
 func (c *Client) joinSession(sessionId string, body *ParticipantJoinBody, session *Session) (*Participant, error) {
 	participant := &Participant{session: session}
 
