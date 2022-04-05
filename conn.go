@@ -147,8 +147,8 @@ func (c *Connection) loadCluster() error {
 	for _, node := range c.nodes {
 		// firstNode := c.nodes[0]
 		c.rsconf, err = node.rsconf()
-		if err != nil {
-			continue
+		if err == nil {
+			break
 		}
 	}
 
