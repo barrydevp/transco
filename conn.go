@@ -1,19 +1,15 @@
 package transco
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
-)
-
-var (
-	ErrNotLeader = errors.New("not leader")
 )
 
 // Scheme constants
@@ -28,11 +24,10 @@ const (
 type RequestFunc func(req *RestRequest) (*resty.Response, error)
 
 type node struct {
-	conf        *nodeConfiguration
-	IP          *net.IP
-	BaseURL     string
-	rest        *Rest
-	isAvailable bool
+	conf    *nodeConfiguration
+	IP      *net.IP
+	BaseURL string
+	rest    *Rest
 }
 
 type nodeConfiguration struct {
@@ -54,6 +49,10 @@ type connString struct {
 }
 
 type Connection struct {
+	mu      sync.Mutex
+	loadCh  *chan struct{}
+	loadErr error
+
 	connStr *connString
 	rsconf  *rsConfiguration
 	nodes   []*node
@@ -99,8 +98,21 @@ func NewConn(uri string) (*Connection, error) {
 		return nil, err
 	}
 
+	nodes := make([]*node, len(cs.hosts))
+	for i, host := range cs.hosts {
+		baseURL := cs.getBaseURL(host)
+		rest := NewRest()
+		rest.SetBaseURL(baseURL)
+		n := &node{
+			BaseURL: baseURL,
+			rest:    rest,
+		}
+		nodes[i] = n
+	}
+
 	conn := &Connection{
 		connStr: cs,
+		nodes:   nodes,
 	}
 
 	return conn, nil
@@ -111,29 +123,44 @@ func (cs *connString) getBaseURL(host string) string {
 }
 
 func (c *Connection) loadNodes() error {
-	cs := c.connStr
-	nodes := make([]*node, len(cs.hosts))
-	for i, host := range cs.hosts {
-		baseURL := cs.getBaseURL(host)
-		rest := NewRest()
-		rest.SetBaseURL(baseURL)
-		n := &node{
-			BaseURL: baseURL,
-			rest:    rest,
+	for _, n := range c.nodes {
+		if !n.isAvailable() {
+			if err := n.init(); err != nil {
+				fmt.Printf("init node failed: %v\n", err)
+				// return fmt.Errorf("init node failed: %w", err)
+				// skip throw err
+			}
 		}
-		if err := n.init(); err != nil {
-			return fmt.Errorf("init node failed: %w", err)
-		}
-		nodes[i] = n
 	}
-
-	c.nodes = nodes
 
 	return nil
 }
 
-func (c *Connection) loadCluster() error {
-	if len(c.nodes) == 0 {
+func (c *Connection) GetLeader() *node {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// @FIXME: improve later
+	if c.loadCh != nil {
+		c.mu.Unlock()
+		<-*c.loadCh
+		c.mu.Lock()
+	}
+
+	return c.leader
+}
+
+func (c *Connection) loadCluster() (err error) {
+	c.mu.Lock()
+	if c.loadCh != nil {
+		// if load is in flight, wait for it instead of execute new load
+		// #thundering herd promise
+		loadCh := *c.loadCh
+		c.mu.Unlock()
+		<-loadCh
+		return c.loadErr
+	}
+
+	if len(c.connStr.hosts) == 0 {
 		return fmt.Errorf("empty nodes")
 	}
 
@@ -141,14 +168,32 @@ func (c *Connection) loadCluster() error {
 	// @TODO: separate into individual method, using mutex lock to manage concurrent access
 	c.rsconf = nil
 	c.leader = nil
-	var err error
+	loadCh := make(chan struct{})
+	c.loadCh = &loadCh
+	c.mu.Unlock()
 
+	// cleanup func
+	defer func() {
+		c.mu.Lock()
+		c.loadCh = nil
+		c.loadErr = err
+		c.mu.Unlock()
+	}()
+
+	// try to init unavailable nodes
+	if err = c.loadNodes(); err != nil {
+		return err
+	}
+
+	err = ErrNoNodeAvailable
 	// fetch rsconf
 	for _, node := range c.nodes {
 		// firstNode := c.nodes[0]
-		c.rsconf, err = node.rsconf()
-		if err == nil {
-			break
+		if node.isAvailable() {
+			c.rsconf, err = node.rsconf()
+			if err == nil {
+				break
+			}
 		}
 	}
 
@@ -159,24 +204,30 @@ func (c *Connection) loadCluster() error {
 	// populate leader
 	leaderConf := c.rsconf.Leader
 	if leaderConf == nil {
-		return fmt.Errorf("no leader")
+		err = fmt.Errorf("no leader")
+		return
 	}
 
 	var leader *node
 	for _, n := range c.nodes {
-		if n.conf.Host == leaderConf.Host && n.conf.ID == leaderConf.ID {
+		if n.isAvailable() && n.conf.Host == leaderConf.Host && n.conf.ID == leaderConf.ID {
 			leader = n
 		}
 	}
 
 	if leader == nil {
-		return fmt.Errorf("cannot found leader in uri")
+		err = fmt.Errorf("cannot found leader in node list")
+		return
 	}
 
 	c.leader = leader
 
 	return nil
 
+}
+
+func (n *node) isAvailable() bool {
+	return n.conf != nil
 }
 
 func (n *node) init() error {
@@ -189,10 +240,16 @@ func (n *node) init() error {
 	return nil
 }
 
+func (n *node) perish() {
+	n.conf = nil
+}
+
 func (n *node) request(fn RequestFunc) (resp *resty.Response, err error) {
 	resp, err = fn(n.rest.requester())
 	if err != nil {
-		return resp, err
+		// request was not sent, so make this node as unavailable for try init again
+		n.perish()
+		return resp, NewRetryableError(err)
 	}
 
 	if resp.StatusCode() != 200 {
@@ -245,10 +302,6 @@ func (n *node) rsconf() (*rsConfiguration, error) {
 }
 
 func (c *Connection) Connect() error {
-	if err := c.loadNodes(); err != nil {
-		return err
-	}
-
 	if err := c.loadCluster(); err != nil {
 		return err
 	}
@@ -258,12 +311,18 @@ func (c *Connection) Connect() error {
 
 func (c *Connection) request(fn RequestFunc) (resp *resty.Response, err error) {
 	exec := func() {
-		resp, err = c.leader.request(fn)
+		leader := c.GetLeader()
+		if leader != nil {
+			resp, err = leader.request(fn)
+		} else {
+			err = ErrNotLeader
+		}
 	}
 
 	exec()
 	retries := 0
-	for retries < MaxRetry && errors.Is(err, ErrNotLeader) {
+	for retries < MaxRetry && IsRetryableErr(err) {
+		fmt.Println("retry")
 		// handle change leader by reload cluster
 		if err = c.loadCluster(); err != nil {
 			return
@@ -275,6 +334,7 @@ func (c *Connection) request(fn RequestFunc) (resp *resty.Response, err error) {
 		delay := time.Duration(math.Pow(200, float64(retries))) * time.Millisecond
 		time.Sleep(delay)
 	}
+	fmt.Println("end")
 
 	return
 }
