@@ -160,10 +160,6 @@ func (c *Connection) loadCluster() (err error) {
 		return c.loadErr
 	}
 
-	if len(c.connStr.hosts) == 0 {
-		return fmt.Errorf("empty nodes")
-	}
-
 	// reset leader
 	// @TODO: separate into individual method, using mutex lock to manage concurrent access
 	c.rsconf = nil
@@ -177,10 +173,11 @@ func (c *Connection) loadCluster() (err error) {
 		c.mu.Lock()
 		c.loadCh = nil
 		c.loadErr = err
+		close(loadCh)
 		c.mu.Unlock()
 	}()
 
-	// try to init unavailable nodes
+	// try to init unavailable nodes if have
 	if err = c.loadNodes(); err != nil {
 		return err
 	}
@@ -322,7 +319,6 @@ func (c *Connection) request(fn RequestFunc) (resp *resty.Response, err error) {
 	exec()
 	retries := 0
 	for retries < MaxRetry && IsRetryableErr(err) {
-		fmt.Println("retry")
 		// handle change leader by reload cluster
 		if err = c.loadCluster(); err != nil {
 			return
@@ -334,7 +330,6 @@ func (c *Connection) request(fn RequestFunc) (resp *resty.Response, err error) {
 		delay := time.Duration(math.Pow(200, float64(retries))) * time.Millisecond
 		time.Sleep(delay)
 	}
-	fmt.Println("end")
 
 	return
 }
