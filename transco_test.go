@@ -22,6 +22,19 @@ func assertError(t *testing.T, err error) {
 	}
 }
 
+func newClient() {
+    uri := "http://localhost:8001,localhost:8002,localhost:8003"
+
+	c, err := transco.New(uri)
+	if err != nil {
+		return nil, err
+	}
+
+    session, _ := c.StartSession()
+
+    session.CommitSession()
+}
+
 func session() (*transco.Session, error) {
 	c, err := transco.New(TRANSCOORDITOR_URI)
 	if err != nil {
